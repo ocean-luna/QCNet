@@ -42,15 +42,15 @@ class QCNetMapEncoder(nn.Module):
                  dropout: float) -> None:
         super(QCNetMapEncoder, self).__init__()
         self.dataset = dataset
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.num_historical_steps = num_historical_steps
-        self.pl2pl_radius = pl2pl_radius
-        self.num_freq_bands = num_freq_bands
-        self.num_layers = num_layers
-        self.num_heads = num_heads
-        self.head_dim = head_dim
-        self.dropout = dropout
+        self.input_dim = input_dim      # 2
+        self.hidden_dim = hidden_dim    # 128
+        self.num_historical_steps = num_historical_steps    # 50
+        self.pl2pl_radius = pl2pl_radius    # 150.0
+        self.num_freq_bands = num_freq_bands    # 64
+        self.num_layers = num_layers    # 1
+        self.num_heads = num_heads      # 8
+        self.head_dim = head_dim        # 16
+        self.dropout = dropout          # 0.1
 
         if dataset == 'argoverse_v2':
             if input_dim == 2:
@@ -93,15 +93,15 @@ class QCNetMapEncoder(nn.Module):
         self.apply(weight_init)
 
     def forward(self, data: HeteroData) -> Dict[str, torch.Tensor]:
-        pos_pt = data['map_point']['position'][:, :self.input_dim].contiguous()
-        orient_pt = data['map_point']['orientation'].contiguous()
-        pos_pl = data['map_polygon']['position'][:, :self.input_dim].contiguous()
-        orient_pl = data['map_polygon']['orientation'].contiguous()
-        orient_vector_pl = torch.stack([orient_pl.cos(), orient_pl.sin()], dim=-1)
+        pos_pt = data['map_point']['position'][:, :self.input_dim].contiguous()     # (N, 2)
+        orient_pt = data['map_point']['orientation'].contiguous()                   # (N,)
+        pos_pl = data['map_polygon']['position'][:, :self.input_dim].contiguous()   # (M, 2)
+        orient_pl = data['map_polygon']['orientation'].contiguous()                 # (M,)
+        orient_vector_pl = torch.stack([orient_pl.cos(), orient_pl.sin()], dim=-1)  # (M, 2)
 
         if self.dataset == 'argoverse_v2':
             if self.input_dim == 2:
-                x_pt = data['map_point']['magnitude'].unsqueeze(-1)
+                x_pt = data['map_point']['magnitude'].unsqueeze(-1)   # (N, 1)
                 x_pl = None
             elif self.input_dim == 3:
                 x_pt = torch.stack([data['map_point']['magnitude'], data['map_point']['height']], dim=-1)

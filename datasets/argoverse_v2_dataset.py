@@ -116,7 +116,7 @@ class ArgoverseV2Dataset(Dataset):
                 self._processed_file_names = []
         else:
             processed_dir = os.path.expanduser(os.path.normpath(processed_dir))
-            self._processed_dir = processed_dir
+            self._processed_dir = processed_dir     # '/data/sty/Argoverse2/train/processed'
             if os.path.isdir(self._processed_dir):
                 self._processed_file_names = [name for name in os.listdir(self._processed_dir) if
                                               os.path.isfile(os.path.join(self._processed_dir, name)) and
@@ -124,7 +124,7 @@ class ArgoverseV2Dataset(Dataset):
             else:
                 self._processed_file_names = []
 
-        self.dim = dim
+        self.dim = dim  # 3
         self.num_historical_steps = num_historical_steps
         self.num_future_steps = num_future_steps
         self.num_steps = num_historical_steps + num_future_steps
@@ -165,14 +165,14 @@ class ArgoverseV2Dataset(Dataset):
     def processed_file_names(self) -> Union[str, List[str], Tuple]:
         return self._processed_file_names
 
-    def download(self) -> None:
+    def download(self) -> None:     # root '/data/sty/Argoverse2'
         if not os.path.isfile(os.path.join(self.root, f'{self.split}.tar')):
             print(f'Downloading {self._url}', file=sys.stderr)
             request.urlretrieve(self._url, os.path.join(self.root, f'{self.split}.tar'))
         if os.path.isdir(os.path.join(self.root, self.split)):
             shutil.rmtree(os.path.join(self.root, self.split))
         if os.path.isdir(self.raw_dir):
-            shutil.rmtree(self.raw_dir)
+            shutil.rmtree(self.raw_dir)     # raw_dir '/data/sty/Argoverse2/train/raw'
         os.makedirs(self.raw_dir)
         extract_tar(path=os.path.join(self.root, f'{self.split}.tar'), folder=self.raw_dir, mode='r')
         self._raw_file_names = [name for name in os.listdir(os.path.join(self.raw_dir, self.split)) if
@@ -195,6 +195,7 @@ class ArgoverseV2Dataset(Dataset):
             data['city'] = self.get_city(df)
             data['agent'] = self.get_agent_features(df)
             data.update(self.get_map_features(map_api, centerlines))
+            # data['map_features'] = self.get_map_features_v2(map_api, centerlines)
             with open(os.path.join(self.processed_dir, f'{raw_file_name}.pkl'), 'wb') as handle:
                 pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -276,14 +277,14 @@ class ArgoverseV2Dataset(Dataset):
     def get_map_features(self,
                          map_api: ArgoverseStaticMap,
                          centerlines: Mapping[str, Polyline]) -> Dict[Union[str, Tuple[str, str, str]], Any]:
-        lane_segment_ids = map_api.get_scenario_lane_segment_ids()
-        cross_walk_ids = list(map_api.vector_pedestrian_crossings.keys())
-        polygon_ids = lane_segment_ids + cross_walk_ids
-        num_polygons = len(lane_segment_ids) + len(cross_walk_ids) * 2
+        lane_segment_ids = map_api.get_scenario_lane_segment_ids()  # 58
+        cross_walk_ids = list(map_api.vector_pedestrian_crossings.keys())   # 8
+        polygon_ids = lane_segment_ids + cross_walk_ids # 66
+        num_polygons = len(lane_segment_ids) + len(cross_walk_ids) * 2  # 74
 
         # initialization
-        polygon_position = torch.zeros(num_polygons, self.dim, dtype=torch.float)
-        polygon_orientation = torch.zeros(num_polygons, dtype=torch.float)
+        polygon_position = torch.zeros(num_polygons, self.dim, dtype=torch.float)   # torch.Size([74, 3])
+        polygon_orientation = torch.zeros(num_polygons, dtype=torch.float)          # torch.Size([74])
         polygon_height = torch.zeros(num_polygons, dtype=torch.float)
         polygon_type = torch.zeros(num_polygons, dtype=torch.uint8)
         polygon_is_intersection = torch.zeros(num_polygons, dtype=torch.uint8)
@@ -296,43 +297,43 @@ class ArgoverseV2Dataset(Dataset):
 
         for lane_segment in map_api.get_scenario_lane_segments():
             lane_segment_idx = polygon_ids.index(lane_segment.id)
-            centerline = torch.from_numpy(centerlines[lane_segment.id].xyz).float()
-            polygon_position[lane_segment_idx] = centerline[0, :self.dim]
+            centerline = torch.from_numpy(centerlines[lane_segment.id].xyz).float() # torch.Size([36, 3])
+            polygon_position[lane_segment_idx] = centerline[0, :self.dim]           # torch.Size([74, 3])
             polygon_orientation[lane_segment_idx] = torch.atan2(centerline[1, 1] - centerline[0, 1],
-                                                                centerline[1, 0] - centerline[0, 0])
-            polygon_height[lane_segment_idx] = centerline[1, 2] - centerline[0, 2]
-            polygon_type[lane_segment_idx] = self._polygon_types.index(lane_segment.lane_type.value)
+                                                                centerline[1, 0] - centerline[0, 0])    # torch.Size([74])
+            polygon_height[lane_segment_idx] = centerline[1, 2] - centerline[0, 2]  # torch.Size([74])
+            polygon_type[lane_segment_idx] = self._polygon_types.index(lane_segment.lane_type.value)    # torch.Size([74])
             polygon_is_intersection[lane_segment_idx] = self._polygon_is_intersections.index(
-                lane_segment.is_intersection)
-
-            left_boundary = torch.from_numpy(lane_segment.left_lane_boundary.xyz).float()
-            right_boundary = torch.from_numpy(lane_segment.right_lane_boundary.xyz).float()
+                lane_segment.is_intersection)   # torch.Size([74])
+            # left_boundary right_boundary 点个数不等
+            left_boundary = torch.from_numpy(lane_segment.left_lane_boundary.xyz).float()       # torch.Size([6, 3])
+            right_boundary = torch.from_numpy(lane_segment.right_lane_boundary.xyz).float()     # torch.Size([6, 3])
             point_position[lane_segment_idx] = torch.cat([left_boundary[:-1, :self.dim],
                                                           right_boundary[:-1, :self.dim],
-                                                          centerline[:-1, :self.dim]], dim=0)
-            left_vectors = left_boundary[1:] - left_boundary[:-1]
-            right_vectors = right_boundary[1:] - right_boundary[:-1]
-            center_vectors = centerline[1:] - centerline[:-1]
+                                                          centerline[:-1, :self.dim]], dim=0)   # 5+5+35， torch.Size([45, 3])
+            left_vectors = left_boundary[1:] - left_boundary[:-1]       # torch.Size([5, 3])
+            right_vectors = right_boundary[1:] - right_boundary[:-1]    # torch.Size([5, 3])
+            center_vectors = centerline[1:] - centerline[:-1]           # torch.Size([35, 3])
             point_orientation[lane_segment_idx] = torch.cat([torch.atan2(left_vectors[:, 1], left_vectors[:, 0]),
                                                              torch.atan2(right_vectors[:, 1], right_vectors[:, 0]),
                                                              torch.atan2(center_vectors[:, 1], center_vectors[:, 0])],
-                                                            dim=0)
+                                                            dim=0)  # torch.Size([45])
             point_magnitude[lane_segment_idx] = torch.norm(torch.cat([left_vectors[:, :2],
                                                                       right_vectors[:, :2],
-                                                                      center_vectors[:, :2]], dim=0), p=2, dim=-1)
+                                                                      center_vectors[:, :2]], dim=0), p=2, dim=-1)  # torch.Size([45])
             point_height[lane_segment_idx] = torch.cat([left_vectors[:, 2], right_vectors[:, 2], center_vectors[:, 2]],
-                                                       dim=0)
+                                                       dim=0)   # torch.Size([45])
             left_type = self._point_types.index(lane_segment.left_mark_type.value)
             right_type = self._point_types.index(lane_segment.right_mark_type.value)
             center_type = self._point_types.index('CENTERLINE')
             point_type[lane_segment_idx] = torch.cat(
                 [torch.full((len(left_vectors),), left_type, dtype=torch.uint8),
                  torch.full((len(right_vectors),), right_type, dtype=torch.uint8),
-                 torch.full((len(center_vectors),), center_type, dtype=torch.uint8)], dim=0)
+                 torch.full((len(center_vectors),), center_type, dtype=torch.uint8)], dim=0)    # torch.Size([45])
             point_side[lane_segment_idx] = torch.cat(
                 [torch.full((len(left_vectors),), self._point_sides.index('LEFT'), dtype=torch.uint8),
                  torch.full((len(right_vectors),), self._point_sides.index('RIGHT'), dtype=torch.uint8),
-                 torch.full((len(center_vectors),), self._point_sides.index('CENTER'), dtype=torch.uint8)], dim=0)
+                 torch.full((len(center_vectors),), self._point_sides.index('CENTER'), dtype=torch.uint8)], dim=0)  # torch.Size([45])
 
         for crosswalk in map_api.get_scenario_ped_crossings():
             crosswalk_idx = polygon_ids.index(crosswalk.id)
@@ -472,7 +473,7 @@ class ArgoverseV2Dataset(Dataset):
             ('map_point', 'to', 'map_polygon'): {},
             ('map_polygon', 'to', 'map_polygon'): {},
         }
-        map_data['map_polygon']['num_nodes'] = num_polygons
+        map_data['map_polygon']['num_nodes'] = num_polygons         # 74
         map_data['map_polygon']['position'] = polygon_position
         map_data['map_polygon']['orientation'] = polygon_orientation
         if self.dim == 3:
@@ -490,7 +491,7 @@ class ArgoverseV2Dataset(Dataset):
             map_data['map_point']['side'] = torch.tensor([], dtype=torch.uint8)
         else:
             map_data['map_point']['num_nodes'] = num_points.sum().item()
-            map_data['map_point']['position'] = torch.cat(point_position, dim=0)
+            map_data['map_point']['position'] = torch.cat(point_position, dim=0) #point_position
             map_data['map_point']['orientation'] = torch.cat(point_orientation, dim=0)
             map_data['map_point']['magnitude'] = torch.cat(point_magnitude, dim=0)
             if self.dim == 3:
@@ -502,6 +503,45 @@ class ArgoverseV2Dataset(Dataset):
         map_data['map_polygon', 'to', 'map_polygon']['type'] = polygon_to_polygon_type
 
         return map_data
+
+    def get_map_features_v2(self,
+                         map_api: ArgoverseStaticMap,
+                         centerlines: Mapping[str, Polyline]) -> Dict[Union[str, Tuple[str, str, str]], Any]:
+        lane_segment_ids = map_api.get_scenario_lane_segment_ids()  # 58
+        cross_walk_ids = list(map_api.vector_pedestrian_crossings.keys())   # 8
+        map_features = list()
+
+        for lane_segment in map_api.get_scenario_lane_segments():
+            one_map_dict = dict()
+            map_id = lane_segment.id
+            polygon_points = list()
+            polygon_points = torch.from_numpy(centerlines[lane_segment.id].xyz).float() # torch.Size([36, 3])
+            one_map_dict['map_id'] = map_id
+            one_map_dict['map_type'] = 'CENTERLINE'
+            one_map_dict['polygon_points'] = polygon_points
+            map_features.append(one_map_dict)
+
+            # left_boundary right_boundary 点个数不等
+            polygon_points = torch.from_numpy(lane_segment.left_lane_boundary.xyz).float()       # torch.Size([6, 3])
+            one_map_dict['map_id'] = map_id
+            one_map_dict['map_type'] = 'road_line'
+            one_map_dict['polygon_points'] = polygon_points
+            map_features.append(one_map_dict)
+
+            polygon_points = torch.from_numpy(lane_segment.right_lane_boundary.xyz).float()     # torch.Size([6, 3])
+            one_map_dict['map_id'] = map_id
+            one_map_dict['map_type'] = 'road_line'
+            one_map_dict['polygon_points'] = polygon_points
+            map_features.append(one_map_dict)
+
+        for crosswalk in map_api.get_scenario_ped_crossings():
+            map_id = crosswalk.id
+            one_map_dict['map_id'] = map_id
+            one_map_dict['map_type'] = 'crosswalk'
+            one_map_dict['polygon_points'] = torch.from_numpy(crosswalk.polygon).float()
+            map_features.append(one_map_dict)    
+
+        return map_features
 
     def len(self) -> int:
         return self._num_samples
@@ -523,10 +563,11 @@ class ArgoverseV2Dataset(Dataset):
         if os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self):
             return
         print('Processing...', file=sys.stderr)
-        if os.path.isdir(self.processed_dir):
+        if os.path.isdir(self.processed_dir):   # processed_dir '`/data/sty/Argoverse2/`train/processed'
             for name in os.listdir(self.processed_dir):
                 if name.endswith(('pkl', 'pickle')):
-                    os.remove(os.path.join(self.processed_dir, name))
+                    # os.remove(os.path.join(self.processed_dir, name))
+                    print(f"file is exist: {name}")
         else:
             os.makedirs(self.processed_dir)
         self._processed_file_names = [f'{raw_file_name}.pkl' for raw_file_name in self.raw_file_names]

@@ -46,17 +46,17 @@ class QCNetAgentEncoder(nn.Module):
                  dropout: float) -> None:
         super(QCNetAgentEncoder, self).__init__()
         self.dataset = dataset
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.num_historical_steps = num_historical_steps
-        self.time_span = time_span if time_span is not None else num_historical_steps
-        self.pl2a_radius = pl2a_radius
-        self.a2a_radius = a2a_radius
-        self.num_freq_bands = num_freq_bands
-        self.num_layers = num_layers
-        self.num_heads = num_heads
-        self.head_dim = head_dim
-        self.dropout = dropout
+        self.input_dim = input_dim      # 2
+        self.hidden_dim = hidden_dim    # 128
+        self.num_historical_steps = num_historical_steps    # 50
+        self.time_span = time_span if time_span is not None else num_historical_steps   # 10
+        self.pl2a_radius = pl2a_radius  # 50.0
+        self.a2a_radius = a2a_radius    # 50.0
+        self.num_freq_bands = num_freq_bands    # 64
+        self.num_layers = num_layers    # 2
+        self.num_heads = num_heads      # 8
+        self.head_dim = head_dim        # 16
+        self.dropout = dropout          # 0.1
 
         if dataset == 'argoverse_v2':
             input_dim_x_a = 4
@@ -93,16 +93,21 @@ class QCNetAgentEncoder(nn.Module):
     def forward(self,
                 data: HeteroData,
                 map_enc: Mapping[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        mask = data['agent']['valid_mask'][:, :self.num_historical_steps].contiguous()
-        pos_a = data['agent']['position'][:, :self.num_historical_steps, :self.input_dim].contiguous()
+        all_obs_traj = torch.Tensor(torch.cat([data['agent']['position'][data['agent']['type'] == 0][:,:, :2], 
+                                               data['agent']['heading'][data['agent']['type'] == 0].unsqueeze(dim=-1),
+                                               data['agent']['velocity'][data['agent']['type'] == 0][:, :, :2]], dim=-1))
+        if len(all_obs_traj) > 100:
+            all_obs_traj = all_obs_traj
+        mask = data['agent']['valid_mask'][:, :self.num_historical_steps].contiguous()      # (N, T), T=50
+        pos_a = data['agent']['position'][:, :self.num_historical_steps, :self.input_dim].contiguous()  # (N, T, 2)
         motion_vector_a = torch.cat([pos_a.new_zeros(data['agent']['num_nodes'], 1, self.input_dim),
-                                     pos_a[:, 1:] - pos_a[:, :-1]], dim=1)
-        head_a = data['agent']['heading'][:, :self.num_historical_steps].contiguous()
-        head_vector_a = torch.stack([head_a.cos(), head_a.sin()], dim=-1)
-        pos_pl = data['map_polygon']['position'][:, :self.input_dim].contiguous()
-        orient_pl = data['map_polygon']['orientation'].contiguous()
+                                     pos_a[:, 1:] - pos_a[:, :-1]], dim=1)          # (N, T, 2)
+        head_a = data['agent']['heading'][:, :self.num_historical_steps].contiguous()   # (N, T)
+        head_vector_a = torch.stack([head_a.cos(), head_a.sin()], dim=-1)           # (N, T, 2)
+        pos_pl = data['map_polygon']['position'][:, :self.input_dim].contiguous()   # (M, 2)
+        orient_pl = data['map_polygon']['orientation'].contiguous()                 # (M,)
         if self.dataset == 'argoverse_v2':
-            vel = data['agent']['velocity'][:, :self.num_historical_steps, :self.input_dim].contiguous()
+            vel = data['agent']['velocity'][:, :self.num_historical_steps, :self.input_dim].contiguous()    # (N, T, 2)
             length = width = height = None
             categorical_embs = [
                 self.type_a_emb(data['agent']['type'].long()).repeat_interleave(repeats=self.num_historical_steps,
